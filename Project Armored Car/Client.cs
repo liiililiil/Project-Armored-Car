@@ -145,17 +145,17 @@ namespace Project_Armored_Car
             //공개키 전송
             await DataSend(stream, Encoding.UTF8.GetBytes(data));
 
-            Invoke(() => Log(ref LOG_TEXTBOX, $"RAS 공유 키 송신됨"));
+            Invoke(() => Log(ref LOG_TEXTBOX, $"RAS 공유 키가 송신되었습니다."));
 
             // Key 가져오기
             aes.Key = rsa.Decrypt(await DataReceive(stream), RSAEncryptionPadding.Pkcs1);
 
-            Invoke(() => Log(ref LOG_TEXTBOX, $"AES 키 수신됨"));
+            Invoke(() => Log(ref LOG_TEXTBOX, $"AES 키가 수신되었습니다."));
 
             // IV 가져오기
             aes.IV = rsa.Decrypt(await DataReceive(stream), RSAEncryptionPadding.Pkcs1);
 
-            Invoke(() => Log(ref LOG_TEXTBOX, $"AES 초기화 백터 수신됨"));
+            Invoke(() => Log(ref LOG_TEXTBOX, $"AES 초기화 백터가 수신되었습니다."));
         }
 
         private async Task<byte[]> DataReceive(Stream stream)

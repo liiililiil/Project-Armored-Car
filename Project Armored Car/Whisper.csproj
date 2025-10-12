@@ -10,6 +10,10 @@
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
     <NuGetAudit>False</NuGetAudit>
     <PackageIcon>comments-1294815_640.png</PackageIcon>
+    <ApplicationIcon>comments-1294815_640.ico</ApplicationIcon>
+    <PackAsTool>False</PackAsTool>
+    <EnableNETAnalyzers>False</EnableNETAnalyzers>
+    <ProduceReferenceAssembly>False</ProduceReferenceAssembly>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
@@ -19,6 +23,10 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
     <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="comments-1294815_640.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <None Include="C:\Users\tmsgk\Downloads\comments-1294815_640.png">
