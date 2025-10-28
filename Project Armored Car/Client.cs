@@ -1,15 +1,21 @@
-﻿using System.Net;
+﻿using System;
+using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Windows.Forms;
 
+//비주얼 스튜디오 윈도우 폼 상속 겁나 힘드네
+using static Project_Armored_Car.TcpChatBase;
 
 namespace Project_Armored_Car
 {
-    public partial class Client : TcpChatBase
+    
+    public partial class Client : Form
     {
+
         //대칭키
         private readonly Aes aes = Aes.Create();
 
@@ -17,39 +23,93 @@ namespace Project_Armored_Car
         private TcpClient client = new();
         private Stream stream;
 
-        //암호화
-        private byte[] Encrypt(string plainText)
-        {
-
-            using MemoryStream ms = new();
-            using CryptoStream cs = new(ms, aes.CreateEncryptor(), CryptoStreamMode.Write);
-            byte[] bytes = Encoding.UTF8.GetBytes(plainText);
-            cs.Write(bytes, 0, bytes.Length);
-            cs.FlushFinalBlock();
-            return ms.ToArray();
-        }
-
-        //복호화
-        private string Decrypt(byte[] cipherText)
-        {
-
-            using MemoryStream ms = new(cipherText);
-            using CryptoStream cs = new(ms, aes.CreateDecryptor(), CryptoStreamMode.Read);
-            using StreamReader reader = new(cs);
-            return reader.ReadToEnd();
-        }
-
-
         public Client()
         {
             //기본 설정
             aes.KeySize = 256;
             aes.Mode = CipherMode.CBC;
             aes.Padding = PaddingMode.PKCS7;
-
             InitializeComponent();
+            LOG_TEXTBOX.LinkClicked += LOG_TEXTBOX_LinkClicked;
 
             Log(ref LOG_TEXTBOX, "연결을 원하는 서버의 ip와 포트를 입력 후 연결 버튼을 누르세요.");
+        }
+        protected void LOG_TEXTBOX_LinkClicked(object sender, LinkClickedEventArgs e)
+        {
+            try
+            {
+                Clipboard.SetText(e.LinkText);
+                SuccessLog(ref LOG_TEXTBOX, "클립보드에 복사되었습니다.");
+            }
+            catch (Exception ex)
+            {
+                ErrorLog(ref LOG_TEXTBOX, $"클립보드 복사에 실패하였습니다!");
+            }
+        }
+
+        private void disconn()
+        {
+            client.Close();
+            client.Dispose();
+            stream.Close();
+            stream.Dispose();
+            client = null;
+            stream = null;
+
+            Log(ref LOG_TEXTBOX, $"서버와의 연결이 종료되었습니다.");
+        }
+
+        private async Task<string> ClientCommand(string text)
+        {
+            string result = "";
+
+            text = text.ToLower();
+            string[] strings = text.Split(' ');
+
+            switch (strings[0])
+            {
+                case "help":
+                    {
+                        result = $"{await GetBaseHelp()}\n{await RightPad("disconnect", 20)} | 서버와의 연결을 종료합니다.\n{await RightPad("info",20)} | 현재 연결된 서버의 정보를 반환합니다.";
+                        break;
+                    }
+                case "disconnect":
+                    {
+                        if (client == null || !client.Connected)
+                        {
+                            result = $"서버에 연결되어 있지 않습니다!";
+                        }
+                        else
+                        {
+                            Invoke(() =>disconn());
+                        }
+                        break;
+                    }
+
+                case "info":
+                    {
+                        if(client == null || !client.Connected)
+                        {
+                            result = $"서버에 연결되어 있지 않습니다!";
+                        }
+                        else
+                        {
+                            result = $"서버 IP : {((IPEndPoint)client.Client.RemoteEndPoint).Address} | 서버 PORT : {((IPEndPoint)client.Client.RemoteEndPoint).Port}";
+                        }
+
+                        break;
+
+                    }
+
+                default:
+                    {
+                        result = await BaseCommand(text);
+                        break;
+                    }
+
+            }
+
+            return result;
         }
 
         private async void CONNENT_BUTTON_Click(object sender, EventArgs e)
@@ -95,10 +155,7 @@ namespace Project_Armored_Car
             {
                 if (stream != null && stream.CanRead)
                 {
-                    stream.Close();
-                    stream.Dispose();
-                    stream = null;
-
+                    disconn();
                 }
 
                 CONNENT_BUTTON.Enabled = true;
@@ -171,7 +228,7 @@ namespace Project_Armored_Car
                     throw new Exception("서버와의 연결이 끊어졌습니다.");
                 }
 
-                string msg = Decrypt(await DataReceive(stream));
+                string msg = Decrypt(aes,await DataReceive(stream));
                 Invoke(() => UserLog(ref LOG_TEXTBOX, msg));
 
             }
@@ -186,24 +243,31 @@ namespace Project_Armored_Car
         {
             try
             {
-                INPUT_TEXTBOX.Clear();
-
-                if (string.IsNullOrEmpty(text))
+                if (text[0] == '/' || text[0] == '!')
                 {
-                    throw new Exception("내용이 없습니다!");
+                    Log(ref LOG_TEXTBOX, await ClientCommand(text.Substring(1)));
                 }
-
-                if (stream == null || !stream.CanWrite)
+                else
                 {
-                    throw new Exception("아직 서버와 연결되지 않았습니다!");
+                    INPUT_TEXTBOX.Clear();
+
+                    if (string.IsNullOrEmpty(text))
+                    {
+                        throw new Exception("내용이 없습니다!");
+                    }
+
+                    if (stream == null || !stream.CanWrite)
+                    {
+                        throw new Exception("아직 서버와 연결되지 않았습니다!");
+                    }
+
+                    text = $"{NAME_TEXTBOX.Text} : {text}";
+
+                    await DataSend(stream, Encrypt(aes, text));
+
+                    Invoke(() => UserLog(ref LOG_TEXTBOX, text));
+
                 }
-
-                text = $"{NAME_TEXTBOX.Text} : {text}";
-
-                await DataSend(stream, Encrypt(text));
-
-                Invoke(() => UserLog(ref LOG_TEXTBOX, text));
-
             }
             catch (Exception ex)
             {
@@ -222,13 +286,5 @@ namespace Project_Armored_Car
                 Sand(INPUT_TEXTBOX.Text);
             }
         }
-
-        private void UserLog(ref RichTextBox textBox, string text)
-        {
-            textBox.AppendText($"[{Time()}] {text}\n");
-            textBox.ScrollToCaret();
-        }
-
-
     }
 }

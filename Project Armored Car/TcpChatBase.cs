@@ -1,26 +1,24 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 
 namespace Project_Armored_Car
 {
     // JSON 직렬화
     public class RsaKeyInfo
     {
-        public string Modulus { get; set; }
-        public string Exponent { get; set; }
+        public required string Modulus { get; set; }
+        public required string Exponent { get; set; }
     }
 
-
-    public abstract class TcpChatBase : Form
-    {        
+    public static class TcpChatBase
+    {
 
         //암호화
-        protected byte[] Encrypt(Aes aes, string plainText)
+        public static byte[] Encrypt(Aes aes, string plainText)
         {
 
             using MemoryStream ms = new();
@@ -32,7 +30,7 @@ namespace Project_Armored_Car
         }
 
         //복호화
-        protected string Decrypt(Aes aes, byte[] cipherText)
+        public static string Decrypt(Aes aes, byte[] cipherText)
         {
 
             using MemoryStream ms = new(cipherText);
@@ -41,39 +39,8 @@ namespace Project_Armored_Car
             return reader.ReadToEnd();
         }
 
-        //암호화
-        protected async Task KeySwap(Aes aes, Stream stream, RichTextBox logBox)
-        {
-            using RSA rsa = RSA.Create(2048);
 
-            // RSA 키를 가져온후 병렬화
-            string json = Encoding.UTF8.GetString(await DataReceive(stream));
-            RsaKeyInfo? keyInfo = JsonSerializer.Deserialize<RsaKeyInfo>(json);
-
-            //키 바인드
-            RSAParameters rsaParams = new()
-            {
-                Modulus = Convert.FromBase64String(keyInfo.Modulus),
-                Exponent = Convert.FromBase64String(keyInfo.Exponent)
-            };
-            rsa.ImportParameters(rsaParams);
-
-            Invoke(() => Log(ref logBox, $"RSA 공유 키가 수신되었습니다."));
-
-            // 대칭 키 송신
-            await DataSend(stream, rsa.Encrypt(aes.Key, RSAEncryptionPadding.Pkcs1));
-
-            Invoke(() => Log(ref logBox, $"AES 키가 송신되었습니다. "));
-
-            // IV 송신
-            await DataSend(stream, rsa.Encrypt(aes.IV, RSAEncryptionPadding.Pkcs1));
-
-            Invoke(() => Log(ref logBox, $"AES 초기화 백터가 송신되었습니다. "));
-
-            Invoke(() => SuccessLog(ref logBox, $"키 교환이 완료되었습니다."));
-        }
-
-        protected async Task<byte[]> DataReceive(Stream stream)
+        public static async Task<byte[]> DataReceive(Stream stream)
         {
             byte[] lenBuffer = new byte[4];
             await ReadExactAsync(stream, lenBuffer, 4);
@@ -84,7 +51,7 @@ namespace Project_Armored_Car
             await ReadExactAsync(stream, dataBuffer, len);
             return dataBuffer;
         }
-        protected async Task DataSend(Stream stream, byte[] data)
+        public static async Task DataSend(Stream stream, byte[] data)
         {
             //사이즈
             byte[] len = BitConverter.GetBytes(data.Length);
@@ -96,7 +63,7 @@ namespace Project_Armored_Car
 
 
         //사이즈만큼만 버퍼 읽기
-        protected async Task ReadExactAsync(Stream stream, byte[] buffer, int size)
+        public static async Task ReadExactAsync(Stream stream, byte[] buffer, int size)
         {
             int offset = 0;
             while (offset < size)
@@ -111,28 +78,31 @@ namespace Project_Armored_Car
             }
         }
 
+
+
+
         //로그
-        protected void UserLog(ref RichTextBox textBox, string text)
+        public static void UserLog(ref RichTextBox textBox, string text)
         {
             textBox.AppendText($"[{Time()}] {text}\n");
             textBox.ScrollToCaret();
         }
 
-        protected void SuccessLog(ref RichTextBox textBox, string text)
+        public static void SuccessLog(ref RichTextBox textBox, string text)
         {
             AddLog(ref textBox, Color.Green, "Success", text);
         }
-        protected void ErrorLog(ref RichTextBox textBox, string text)
+        public static void ErrorLog(ref RichTextBox textBox, string text)
         {
             AddLog(ref textBox, Color.Red, "Error", text);
         }
 
-        protected void Log(ref RichTextBox textBox, string text)
+        public static void Log(ref RichTextBox textBox, string text)
         {
             AddLog(ref textBox, Color.Gray, "Log", text);
         }
 
-        protected void AddLog(ref RichTextBox textBox, Color selectColor, string Header, string text)
+        public static void AddLog(ref RichTextBox textBox, Color selectColor, string Header, string text)
         {
             if (textBox == null)
             {
@@ -152,9 +122,88 @@ namespace Project_Armored_Car
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        protected string Time()
+        public static string Time()
         {
             return DateTime.Now.ToString("HH:mm:ss");
+        }
+
+        public static async Task<string> BaseCommand(string text)
+        {
+            string[] strings = text.Split(' ');
+
+            switch (strings[0])
+            {
+                case "privateip":
+                    {
+                        return $"당신의 개인 IP는 {await GetPrivateIP()} 입니다.";
+                        break;
+                    }
+                case "publicip":
+                    {
+                        return $"당신의 공용 IP는 {await GetPublicIP()} 입니다.";
+                        break;
+                    }
+                default:
+                    throw new Exception("알 수 없는 명령어입니다!");
+            }
+        }
+
+        public async static Task<string> GetBaseHelp()
+        {
+            return $"다음은 명령어 목록입니다.\n{await RightPad("help",20)} | 명령목록을 반환합니다.\n{await RightPad("privateip",20)} | 개인 ip를 반환합니다.\n{await RightPad("publicip", 20)} | 공용 ip를 반환합니다.";
+        }
+
+        public async static Task<string> RightPad(string input, int totalWidth)
+        {
+            return input.Length >= totalWidth ? input : input + new string(' ', totalWidth - input.Length);
+        }
+
+        //내 공용 ip 
+        public static async Task<string> GetPublicIP()
+        {
+            using HttpClient client = new();
+            string ip = await client.GetStringAsync("https://api.ipify.org");
+            return ip.Trim();
+        }
+        public static async Task<string> GetPrivateIP()
+        {
+            IEnumerable<NetworkInterface> interfaces = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up &&
+                            n.NetworkInterfaceType != NetworkInterfaceType.Loopback);
+
+            foreach (NetworkInterface? ni in interfaces)
+            {
+                IPInterfaceProperties ipProps = ni.GetIPProperties();
+                foreach (UnicastIPAddressInformation addr in ipProps.UnicastAddresses)
+                {
+                    if (addr.Address.AddressFamily == AddressFamily.InterNetwork)
+                    {
+                        IPAddress ip = addr.Address;
+                        if (IsPrivateIP(ip))
+                        {
+                            return ip.ToString();
+                        }
+                    }
+                }
+            }
+
+            // ip 못찾으면 예외 처리
+            throw new Exception("개인 IP 주소를 찾을 수 없습니다.");
+        }
+
+        // 주소 검증
+        private static bool IsPrivateIP(IPAddress ip)
+        {
+            byte[] b = ip.GetAddressBytes();
+            return b[0] == 10 ||
+                   (b[0] == 172 && b[1] >= 16 && b[1] <= 31) ||
+                   (b[0] == 192 && b[1] == 168);
+        }
+
+
+        public static string ReturnBaseHelp()
+        {
+            return "명령어는 다음이 있습니다. \n/help - 도움말 표시\n/clear - 채팅창 지우기";
         }
     }
 
