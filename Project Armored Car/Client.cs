@@ -8,7 +8,7 @@ using System.Text.Json;
 
 namespace Project_Armored_Car
 {
-    public partial class Client : Form
+    public partial class Client : TcpChatBase
     {
         //대칭키
         private readonly Aes aes = Aes.Create();
@@ -96,6 +96,8 @@ namespace Project_Armored_Car
                 if (stream != null && stream.CanRead)
                 {
                     stream.Close();
+                    stream.Dispose();
+                    stream = null;
 
                 }
 
@@ -158,48 +160,17 @@ namespace Project_Armored_Car
             Invoke(() => Log(ref LOG_TEXTBOX, $"AES 초기화 백터가 수신되었습니다."));
         }
 
-        private async Task<byte[]> DataReceive(Stream stream)
-        {
-            byte[] lenBuffer = new byte[4];
-            await ReadExactAsync(stream, lenBuffer, 4);
-
-            int len = BitConverter.ToInt32(lenBuffer, 0);
-
-            byte[] dataBuffer = new byte[len];
-            await ReadExactAsync(stream, dataBuffer, len);
-            return dataBuffer;
-        }
-        private async Task DataSend(Stream stream, byte[] data)
-        {
-            //사이즈
-            byte[] len = BitConverter.GetBytes(data.Length);
-            await stream.WriteAsync(len, 0, len.Length);
-
-            //본 메시지
-            await stream.WriteAsync(data, 0, data.Length);
-        }
-
-        private async Task ReadExactAsync(Stream stream, byte[] buffer, int size)
-        {
-            int offset = 0;
-            while (offset < size)
-            {
-                int read = await stream.ReadAsync(buffer, offset, size - offset);
-                if (read <= 0)
-                {
-                    throw new Exception("연결이 종료되었습니다!");
-                }
-
-                offset += read;
-            }
-        }
-
         private async Task Receive()
         {
             byte[] lenBuffer = new byte[4];
 
             while (true)
             {
+                if(stream == null || !stream.CanRead)
+                {
+                    throw new Exception("서버와의 연결이 끊어졌습니다.");
+                }
+
                 string msg = Decrypt(await DataReceive(stream));
                 Invoke(() => UserLog(ref LOG_TEXTBOX, msg));
 
@@ -222,7 +193,7 @@ namespace Project_Armored_Car
                     throw new Exception("내용이 없습니다!");
                 }
 
-                if (stream == null)
+                if (stream == null || !stream.CanWrite)
                 {
                     throw new Exception("아직 서버와 연결되지 않았습니다!");
                 }
@@ -240,44 +211,9 @@ namespace Project_Armored_Car
             }
         }
 
-        private void SuccessLog(ref RichTextBox textBox, string text)
-        {
-            AddLog(ref textBox, Color.Green, "Success", text);
-        }
-        private void ErrorLog(ref RichTextBox textBox, string text)
-        {
-            AddLog(ref textBox, Color.Red, "Error", text);
-        }
 
-        private void Log(ref RichTextBox textBox, string text)
-        {
-            AddLog(ref textBox, Color.Gray, "Log", text);
-        }
 
-        private void AddLog(ref RichTextBox textBox, Color selectColor, string Header, string text)
-        {
-            if (textBox == null)
-            {
-                throw new ArgumentNullException("textBox가 Null입니다!");
-            }
 
-            Color color = textBox.SelectionColor;
-
-            textBox.SelectionStart = textBox.TextLength;
-            textBox.SelectionColor = selectColor;
-
-            textBox.AppendText($"[{Time()}] {Header} : {text}\n");
-
-            textBox.SelectionColor = color;
-            textBox.SelectionStart = textBox.TextLength;
-            textBox.ScrollToCaret();
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private string Time()
-        {
-            return DateTime.Now.ToString("HH:mm:ss");
-        }
 
         private void INPUT_TEXTBOX_KeyDown(object sender, KeyEventArgs e)
         {

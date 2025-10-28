@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
@@ -7,7 +8,7 @@ using System.Text.Json;
 
 namespace Project_Armored_Car
 {
-    public partial class Server : Form
+    public partial class Server : TcpChatBase
     {
         // 서버 
         private TcpListener tcpListener;
@@ -18,27 +19,7 @@ namespace Project_Armored_Car
         // 공개키 암호화
         private readonly Aes aes = Aes.Create();
 
-        //암호화
-        private byte[] Encrypt(string plainText)
-        {
 
-            using MemoryStream ms = new();
-            using CryptoStream cs = new(ms, aes.CreateEncryptor(), CryptoStreamMode.Write);
-            byte[] bytes = Encoding.UTF8.GetBytes(plainText);
-            cs.Write(bytes, 0, bytes.Length);
-            cs.FlushFinalBlock();
-            return ms.ToArray();
-        }
-
-        //복호화
-        private string Decrypt(byte[] cipherText)
-        {
-
-            using MemoryStream ms = new(cipherText);
-            using CryptoStream cs = new(ms, aes.CreateDecryptor(), CryptoStreamMode.Read);
-            using StreamReader reader = new(cs);
-            return reader.ReadToEnd();
-        }
 
         public Server()
         {
@@ -71,7 +52,8 @@ namespace Project_Armored_Car
                 tcpListener = new TcpListener(IPAddress.Any, intPort);
                 tcpListener.Start();
 
-                SuccessLog(ref LOG_TEXTBOX, $"서버가 시작되었습니다. | IP : {await GetPublicIP()} | 포트 : {intPort}");
+                SuccessLog(ref LOG_TEXTBOX, $"서버가 시작되었습니다. ");
+                Log(ref LOG_TEXTBOX, $"PublicIP : {await GetPublicIP()} | PrivateIP : {await GetPrivateIP()} | Port : {intPort}");
 
                 //키 생성
                 aes.GenerateKey();
@@ -121,7 +103,7 @@ namespace Project_Armored_Car
                 Stream stream = tcpClient.GetStream();
 
                 //통신 암호화
-                await KeySwap(stream);
+                await KeySwap(aes, stream, LOG_TEXTBOX);
 
                 Invoke(() => SuccessLog(ref LOG_TEXTBOX, $"성공적으로 연결되었습니다."));
 
@@ -133,7 +115,7 @@ namespace Project_Armored_Car
                     _ = BroadcastMessage(msg, tcpClient);
 
                     //복호화
-                    string text = Decrypt(msg);
+                    string text = Decrypt(aes, msg);
 
                     //출력
                     Invoke(() => UserLog(ref LOG_TEXTBOX, text));
@@ -178,81 +160,8 @@ namespace Project_Armored_Car
                 }
             }
         }
-        //암호화
-        private async Task KeySwap(Stream stream)
-        {
-            using RSA rsa = RSA.Create(2048);
 
-            // RSA 키를 가져온후 병렬화
-            string json = Encoding.UTF8.GetString(await DataReceive(stream));
-            RsaKeyInfo? keyInfo = JsonSerializer.Deserialize<RsaKeyInfo>(json);
 
-            //키 바인드
-            RSAParameters rsaParams = new()
-            {
-                Modulus = Convert.FromBase64String(keyInfo.Modulus),
-                Exponent = Convert.FromBase64String(keyInfo.Exponent)
-            };
-            rsa.ImportParameters(rsaParams);
-
-            Invoke(() => Log(ref LOG_TEXTBOX, $"RSA 공유 키가 수신되었습니다."));
-
-            // 대칭 키 송신
-            await DataSend(stream, rsa.Encrypt(aes.Key, RSAEncryptionPadding.Pkcs1));
-
-            Invoke(() => Log(ref LOG_TEXTBOX, $"AES 키가 송신되었습니다. "));
-
-            // IV 송신
-            await DataSend(stream, rsa.Encrypt(aes.IV, RSAEncryptionPadding.Pkcs1));
-
-            Invoke(() => Log(ref LOG_TEXTBOX, $"AES 초기화 백터가 송신되었습니다. "));
-
-            Invoke(() => SuccessLog(ref LOG_TEXTBOX, $"키 교환이 완료되었습니다."));
-        }
-
-        private async Task<byte[]> DataReceive(Stream stream)
-        {
-            byte[] lenBuffer = new byte[4];
-            await ReadExactAsync(stream, lenBuffer, 4);
-
-            int len = BitConverter.ToInt32(lenBuffer, 0);
-
-            byte[] dataBuffer = new byte[len];
-            await ReadExactAsync(stream, dataBuffer, len);
-            return dataBuffer;
-        }
-        private async Task DataSend(Stream stream, byte[] data)
-        {
-            //사이즈
-            byte[] len = BitConverter.GetBytes(data.Length);
-            await stream.WriteAsync(len, 0, len.Length);
-
-            //본 메시지
-            await stream.WriteAsync(data, 0, data.Length);
-        }
-
-        // JSON 직렬화
-        public class RsaKeyInfo
-        {
-            public string Modulus { get; set; }
-            public string Exponent { get; set; }
-        }
-
-        //사이즈만큼만 버퍼 읽기
-        private async Task ReadExactAsync(Stream stream, byte[] buffer, int size)
-        {
-            int offset = 0;
-            while (offset < size)
-            {
-                int read = await stream.ReadAsync(buffer, offset, size - offset);
-                if (read <= 0)
-                {
-                    throw new Exception("연결이 종료되었습니다!");
-                }
-
-                offset += read;
-            }
-        }
 
         //내 공용 ip 
         private async Task<string> GetPublicIP()
@@ -261,52 +170,39 @@ namespace Project_Armored_Car
             string ip = await client.GetStringAsync("https://api.ipify.org");
             return ip.Trim();
         }
+        public async Task<string> GetPrivateIP()
+        {
+            var interfaces = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up &&
+                            n.NetworkInterfaceType != NetworkInterfaceType.Loopback);
 
-        /// <summary>
-        /// 로그 출력용 
-        /// </summary>
-        private void SuccessLog(ref RichTextBox textBox, string text)
-        {
-            AddLog(ref textBox, Color.Green, "Success", text);
-        }
-        private void ErrorLog(ref RichTextBox textBox, string text)
-        {
-            AddLog(ref textBox, Color.Red, "Error", text);
-        }
-
-        private void Log(ref RichTextBox textBox, string text)
-        {
-            AddLog(ref textBox, Color.Gray, "Log", text);
-        }
-
-        private void AddLog(ref RichTextBox textBox, Color selectColor, string Header, string text)
-        {
-            if (textBox == null)
+            foreach (var ni in interfaces)
             {
-                throw new ArgumentNullException("textBox가 Null입니다!");
+                var ipProps = ni.GetIPProperties();
+                foreach (var addr in ipProps.UnicastAddresses)
+                {
+                    if (addr.Address.AddressFamily == AddressFamily.InterNetwork)
+                    {
+                        var ip = addr.Address;
+                        if (await IsPrivateIP(ip))
+                            return ip.ToString();
+                    }
+                }
             }
 
-            Color color = textBox.SelectionColor;
-
-            textBox.SelectionStart = textBox.TextLength;
-            textBox.SelectionColor = selectColor;
-
-            textBox.AppendText($"[{Time()}] {Header} : {text}\n");
-
-            textBox.SelectionColor = color;
-            textBox.SelectionStart = textBox.TextLength;
-            textBox.ScrollToCaret();
+            // ip 못찾으면 예외 처리
+            throw new Exception("Private IPv4 주소를 찾을 수 없습니다.");
         }
 
-        /// <summary>
-        /// 시간 출력용 
-        /// </summary>
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private string Time()
+        // 주소 검증
+        private async Task<bool> IsPrivateIP(IPAddress ip)
         {
-            return DateTime.Now.ToString("HH:mm:ss");
+            var b = ip.GetAddressBytes();
+            return b[0] == 10 ||
+                   (b[0] == 172 && b[1] >= 16 && b[1] <= 31) ||
+                   (b[0] == 192 && b[1] == 168);
         }
+
 
         private void INPUT_TEXTBOX_KeyDown(object sender, KeyEventArgs e)
         {
@@ -339,7 +235,7 @@ namespace Project_Armored_Car
                 text = $"{NAME_TEXTBOX.Text} : {text}";
 
 
-                byte[] data = Encrypt(text);
+                byte[] data = Encrypt(aes, text);
                 _ = BroadcastMessage(data, null);
 
                 Invoke(() => UserLog(ref LOG_TEXTBOX, text));
@@ -354,11 +250,7 @@ namespace Project_Armored_Car
         {
             Sand(INPUT_TEXTBOX.Text);
         }
-        private void UserLog(ref RichTextBox textBox, string text)
-        {
-            textBox.AppendText($"[{Time()}] {text}\n");
-            textBox.ScrollToCaret();
-        }
+
 
     }
 }
