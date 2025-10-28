@@ -245,6 +245,8 @@ namespace Project_Armored_Car
             {
                 if (text[0] == '/' || text[0] == '!')
                 {
+                    INPUT_TEXTBOX.Clear();
+
                     Log(ref LOG_TEXTBOX, await ClientCommand(text.Substring(1)));
                 }
                 else

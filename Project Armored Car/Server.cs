@@ -303,8 +303,10 @@ namespace Project_Armored_Car
         {
             try
             {
-                if (text[0] == '/' || text[0] == '!')
+                if (text.Length <= 0 || text[0] == '/' || text[0] == '!')
                 {
+                    INPUT_TEXTBOX.Clear();
+
                     Log(ref LOG_TEXTBOX, await ServerCommand(text.Substring(1)));
                     return;
                 }

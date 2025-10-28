@@ -99,7 +99,7 @@ namespace Project_Armored_Car
 
         public static void Log(ref RichTextBox textBox, string text)
         {
-            AddLog(ref textBox, Color.Gray, "Log", text);
+            AddLog(ref textBox, Color.Black, "Log", text);
         }
 
         public static void AddLog(ref RichTextBox textBox, Color selectColor, string Header, string text)
